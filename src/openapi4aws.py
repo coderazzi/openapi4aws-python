@@ -1,8 +1,10 @@
-"""openapi4aws - utility to enrich an openapi specification with information specific for the AWS API Gateway.
-It allows defining route integrations and authorizers to do automatic (re-)imports in API Gateway.
+"""openapi4aws - utility to enrich an openapi specification with information
+specific for the AWS API Gateway.
+It allows defining route integrations and authorizers to do automatic
+(re-)imports in API Gateway.
 
-Author:  Luis M. Pena <dr.lu@coderazzi.net>
-Site:    www.coderazzi.net/python/openapi4ws
+Author:  Luis M. Pena <lu@coderazzi.net>
+Site:    https://coderazzi.net/python/openapi4ws
 """
 
 import glob
@@ -16,7 +18,7 @@ import yaml
 
 __version__ = '1.2.0'
 
-__all__ = ['openapi4aws', 'ArgumentsHandler', 'ArgumentException']
+__all__ = ['openapi4aws', 'augment_content', 'Configuration', 'ConfigurationError']
 
 __copyright__ = """
 Copyright (c) Luis M. Pena <lu@coderazzi.net>  All rights reserved.
@@ -40,18 +42,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
 
 
-class ArgumentsHandler:
-    """Class to parse the arguments"""
+class Configuration:
+    """Class to parse the arguments and define the configuration"""
 
     AUTHORIZER_AUTHORIZATION_TYPE = 'authorization-type'
     AUTHORIZER_TYPE = 'authorizer-type'
-    DEFAULT_AUTHORIZER = {AUTHORIZER_TYPE: "oauth2", AUTHORIZER_AUTHORIZATION_TYPE: 'jwt'}
-    SIMPLE_AUTHORIZER_FIELDS = {AUTHORIZER_AUTHORIZATION_TYPE, AUTHORIZER_TYPE, 'identity-source', 'issuer'}
+    DEFAULT_AUTHORIZER = {AUTHORIZER_TYPE: "oauth2",
+                          AUTHORIZER_AUTHORIZATION_TYPE: 'jwt'}
+    SIMPLE_AUTHORIZER_FIELDS = {AUTHORIZER_AUTHORIZATION_TYPE, AUTHORIZER_TYPE,
+                                'identity-source', 'issuer'}
     AUTHORIZER_FIELDS = SIMPLE_AUTHORIZER_FIELDS.union({'audience'})
     CONFIGURATION_ARGUMENT = "configuration"
     AUTHORIZER_ARGUMENT = "authorizer."
     AUTHORIZER_DEFINITION = "name"
     ARGUMENTS_PRIORITY = [AUTHORIZER_ARGUMENT + AUTHORIZER_DEFINITION, CONFIGURATION_ARGUMENT]
+
+    @staticmethod
+    def from_filename(filename):
+        return Configuration(['%s=%s' % (Configuration.CONFIGURATION_ARGUMENT, filename)])
 
     def __init__(self, argv):
         self.output_folder = None
@@ -60,7 +68,6 @@ class ArgumentsHandler:
         self.globs = set()
         self.tags = {}
         self.paths = {}
-        self.default_authorizer = None
         self.argument_handlers = {
             self.AUTHORIZER_ARGUMENT: self._handle_authorizer,
             self.CONFIGURATION_ARGUMENT: self._handle_configuration,
@@ -70,7 +77,8 @@ class ArgumentsHandler:
             'glob': self._handle_glob,
             'output-folder': self._handle_output
         }
-        self.arg_pattern = re.compile("^(--)?(%s)([^=]*)=(.+)$" % '|'.join(self.argument_handlers.keys()))
+        self.arg_pattern = re.compile("^(--)?(%s)([^=]*)=(.+)$" %
+                                      '|'.join(self.argument_handlers.keys()))
         self._handle_arguments(argv, False)
         self._check_authorizer_definitions()
 
@@ -86,11 +94,14 @@ class ArgumentsHandler:
         return self.output_folder
 
     def get_authorizers(self):
-        """Returns authorizers as tuples (name, audience, authorization_type, authorizer_type, identity, issuer)"""
-        return [(k, *[v[field] for field in sorted(self.AUTHORIZER_FIELDS)]) for k, v in self.authorizers.items() if k]
+        """Returns authorizers as tuples (name, audience, authorization_type,
+        authorizer_type, identity, issuer)"""
+        return [(k, *[v[field] for field in sorted(self.AUTHORIZER_FIELDS)])
+                for k, v in self.authorizers.items() if k]
 
     def get_integration(self, path, tags):
-        """Returns the most suitable integration for the given path, as tuple(authorizer, scopes, uri)"""
+        """Returns the most suitable integration for the given path,
+        as tuple(authorizer, scopes, uri)"""
         try:
             ret = self.paths[path]
         except KeyError:
@@ -105,22 +116,24 @@ class ArgumentsHandler:
             return ret.authorizer, ret.scopes, ret.uri(path)
 
     def _handle_arguments(self, argv, strict):
-        """Parses the given arguments. If strict is True, arguments cannot be preceded with dashes"""
-        for argument, area, name, value in self._get_sorted_arguments(argv, strict):
+        """Parses the given arguments. If strict is True,
+        arguments cannot be preceded with dashes"""
+        for argument, area, name, value in self._sort_arguments(argv, strict):
             try:
                 self.argument_handlers[area](name, value)
-            except ArgumentException as ae:
-                raise ArgumentException(argument + ' : ' + ae.args[1])
+            except ConfigurationError as ae:
+                raise ConfigurationError(argument + ' : ' + ae.args[1])
 
-    def _get_sorted_arguments(self, argv, strict):
-        """Return the arguments sorted, as (arg, area, name, value), raising an exception if arguments are incorrect"""
+    def _sort_arguments(self, argv, strict):
+        """Return the arguments sorted, as (arg, area, name, value),
+        raising an exception if arguments are incorrect"""
 
         def get_priority(argument):
             try:
                 # if argument is defined in self.ARGUMENTS_PRIORITY, return a negative value
                 return self.ARGUMENTS_PRIORITY.index(argument) - len(self.ARGUMENTS_PRIORITY)
             except ValueError:
-                # just return the current position in the list, to respect input order
+                # respect input order, returning the current position in input order
                 return len(ret)
 
         ret = []
@@ -128,14 +141,15 @@ class ArgumentsHandler:
         for arg in argv:
             m = self.arg_pattern.match(arg)
             if m:
-                opt, area, name, value = m.group(1) is not None, m.group(2), m.group(3).strip(), m.group(4).strip()
+                opt, area = m.group(1) is not None, m.group(2)
+                name, value = m.group(3).strip(), m.group(4).strip()
                 if using_dashes is None or using_dashes == opt:
                     using_dashes = opt
                     # if area ends wih '.', name cannot be empty
                     if value and (area.endswith('.') != (name == '')):
                         ret.append((get_priority(area + name), arg, area, name, value))
                         continue
-            raise ArgumentException(ArgumentException.UNEXPECTED_ARGUMENT)
+            raise ConfigurationError(ConfigurationError.UNEXPECTED_ARGUMENT + ' : ' + arg)
         return [[y for y in x[1:]] for x in sorted(ret)]
 
     def _check_authorizer_definitions(self):
@@ -145,7 +159,7 @@ class ArgumentsHandler:
                 for field in self.AUTHORIZER_FIELDS:
                     if field not in auth:
                         missing = self.AUTHORIZER_ARGUMENT + field
-                        raise ArgumentException(f'Missing {missing} or {missing}.{name}')
+                        raise ConfigurationError(f'Missing {missing} or {missing}.{name}')
 
     @staticmethod
     def _convert_to_non_empty_list(arg):
@@ -153,13 +167,15 @@ class ArgumentsHandler:
            There must be at least one part, or an exception is raised"""
         ret = [y for y in [x.strip() for x in arg.split(',')] if y]
         if not ret:
-            raise ArgumentException('Invalid value: ' + arg)
+            raise ConfigurationError('Invalid value: ' + arg)
         return ret
 
     def _handle_configuration(self, _, filename):
-        """Handles an argument configuration=value, by reading the arguments specified in the given filename"""
+        """Handles an argument configuration=value,
+        by reading the arguments specified in the given filename"""
         with open(filename) as f:
-            self._handle_arguments([y for y in [x.strip() for x in f.readlines()] if y and not y.startswith('#')], True)
+            argv = [y for y in [x.strip() for x in f.readlines()] if y and not y.startswith('#')]
+            self._handle_arguments(argv, True)
 
     def _handle_glob(self, _, value):
         """Handles an argument glob=value"""
@@ -174,26 +190,28 @@ class ArgumentsHandler:
         self.output_folder = value
 
     def _handle_path(self, definition, value):
-        """Handles an argument path.definition=value, where value is uri[,authorizer,scopes]"""
-        uri, *other = self._convert_to_non_empty_list(value)
-        self.paths['/' + definition.replace('.', '/')] = self._create_integration(other, lambda _: uri)
+        """Handles an argument path.definition=value,
+        where value is uri[,authorizer,scopes]"""
+        uri, *plus = self._convert_to_non_empty_list(value)
+        self.paths['/' + definition.replace('.', '/')] = self._new_integration(plus, lambda _: uri)
 
     def _handle_tag(self, definition, value):
-        """Handles an argument tag.definition=value, where value is uri[,authorizer,scopes]"""
+        """Handles an argument tag.definition=value,
+        where value is uri[,authorizer,scopes]"""
         uri, *other = self._convert_to_non_empty_list(value)
         if uri.endswith('/'):
             uri = uri[:-1]
-        self.tags[definition.lower()] = self._create_integration(other, lambda path: uri + path)
+        self.tags[definition.lower()] = self._new_integration(other, lambda path: uri + path)
 
-    def _create_integration(self, auth_items, uri_function):
+    def _new_integration(self, auth_items, uri_function):
         """Creates an Integration
-           :param auth_items: None or authorizer, [scopes]. The authorizer must be already defined
-           :param uri_function: the function used to create the final uri for a given path
+           :param auth_items: None or authorizer, [scopes]
+           :param uri_function: used to create the final uri for a given path
         """
         if auth_items:
             authorizer, *scopes = auth_items
             if authorizer not in self.authorizers:
-                raise ArgumentException(authorizer + ' is not a provided authorizer name')
+                raise ConfigurationError(authorizer + ' is not a provided authorizer name')
         else:
             authorizer, scopes = None, []
         return Integration(uri=uri_function, authorizer=authorizer, scopes=scopes)
@@ -202,16 +220,19 @@ class ArgumentsHandler:
         """Handles an argument authorizer.definition=value"""
         if self.AUTHORIZER_DEFINITION == definition:
             # main authorizer definitions, defines the name of the authorizers
-            if self.default_authorizer is None:
+            try:
+                default_authorizer = self.authorizers['']
+            except KeyError:
                 # define the default authorizer as without name, as that matches then the
-                # definitions without authorizer name such as authorizer.issuer = value
+                # definitions without authorizer name such as authorizer.issuer = value,
                 # as opposed to authorizer.issuer.name = value
-                self.authorizers[''] = self.default_authorizer = Authorizer(self.DEFAULT_AUTHORIZER)
+                default_authorizer = Authorizer(self.DEFAULT_AUTHORIZER)
+                self.authorizers[''] = default_authorizer
             for x in self._convert_to_non_empty_list(value):
                 if x not in self.authorizers:
-                    self.authorizers[x] = Authorizer(self.default_authorizer)
+                    self.authorizers[x] = Authorizer(default_authorizer)
         else:
-            # the definition can include the authorizer, as in 'issuer.authorizer_name'
+            # definition can include the authorizer: 'issuer.authorizer_name'
             last = definition.rfind('.')
             if last == -1:
                 name = ''
@@ -219,11 +240,11 @@ class ArgumentsHandler:
                 name = definition[last + 1:].strip()
                 definition = definition[:last].strip()
             if definition not in self.AUTHORIZER_FIELDS or name not in self.authorizers:
-                raise ArgumentException(ArgumentException.UNEXPECTED_ARGUMENT)
+                raise ConfigurationError(ConfigurationError.UNEXPECTED_ARGUMENT)
             self.authorizers[name][definition] = value
 
 
-class ArgumentException(Exception):
+class ConfigurationError(Exception):
     UNEXPECTED_ARGUMENT = 'unexpected argument'
 
     def __init__(self, msg):
@@ -231,17 +252,18 @@ class ArgumentException(Exception):
 
 
 class Authorizer(dict):
-    """Implementation of authorizer as a dictionary where the keys can be defined in a delegated dictionary"""
+    """Implementation of authorizer as a dictionary where the keys
+    can be defined in a delegated dictionary"""
 
     def __init__(self, delegate):
         super().__init__()
-        self.delegate = delegate
+        self.base = delegate
 
     def __missing__(self, key):
-        return self.delegate[key] if self.delegate else None
+        return self.base[key] if self.base else None
 
     def __contains__(self, item):
-        return super().__contains__(item) or (self.delegate and item in self.delegate)
+        return super().__contains__(item) or (self.base and item in self.base)
 
 
 @dataclass
@@ -251,26 +273,22 @@ class Integration:
     authorizer: str
 
 
-def openapi4aws(arguments_handler):
-    def _get_input():
-        """Returns tuples (filename, yaml content) for each file specified in the arguments"""
-        for each in arguments_handler.get_input():
-            try:
-                with open(each) as fo:
-                    yield each, yaml.load(fo, Loader=yaml.FullLoader)
-            except IOError as ioex:
-                print(f"Error accessing '{each}' : {ioex.strerror}", file=sys.stderr)
-            except yaml.MarkedYAMLError as eyx:
-                print(f"Invalid yaml file '{each}' : {eyx.problem}", file=sys.stderr)
+def augment_content(yaml_content, authorizers, integration_getter):
+    """Augments the yaml content with the given authorizers and the
+       integration provider: path, tags
+       :returns True if the content is modified
+       """
 
     def _get_or_create_yaml_field(yaml_spec, field, default_value):
-        """Returns the given field in the yaml specification. If not found, it creates it with the default value"""
+        """Returns the given field in the yaml specification.
+        If not found, it creates it with the default value"""
         ret = yaml_spec.get(field)
         if ret is None:
             yaml_spec[field] = ret = default_value
         return ret
 
-    def _define_authorizer(yaml_spec, name, audience, authorization_type, authorizer_type, identity, issuer):
+    def _define_authorizer(yaml_spec, name, audience, authorization_type,
+                           authorizer_type, identity, issuer):
         components = _get_or_create_yaml_field(yaml_spec, 'components', {})
         schemas = _get_or_create_yaml_field(components, 'securitySchemes', {})
         schemas[name] = {
@@ -299,21 +317,39 @@ def openapi4aws(arguments_handler):
             use.clear()
             use.append({authorizer_name: scopes})
 
+    modified = len(authorizers) > 0
+    for authorizer in authorizers:
+        _define_authorizer(yaml_content, *authorizer)
+    for path, path_spec in yaml_content.get('paths', {}).items():
+        for method, method_spec in path_spec.items():
+            integration = integration_getter(path, method_spec.get('tags', []))
+            if integration:
+                _define_integration(method, method_spec, *integration)
+                modified = True
+    return modified
+
+
+def openapi4aws(configuration):
+    def _get_input():
+        """Returns tuples (filename, yaml content)"""
+        for each in configuration.get_input():
+            try:
+                with open(each) as fo:
+                    yield each, yaml.load(fo, Loader=yaml.FullLoader)
+            except IOError as ioex:
+                print(f"Error accessing '{each}' : {ioex.strerror}", file=sys.stderr)
+            except yaml.MarkedYAMLError as eyx:
+                print(f"Invalid yaml file '{each}' : {eyx.problem}", file=sys.stderr)
+
     for filename, content in _get_input():
-        """Returns tuples (name, authorization_type, identity, issuer, authorizer_type, audience)"""
-        modified = False
-        for authorizer in arguments_handler.get_authorizers():
-            _define_authorizer(content, *authorizer)
-            modified = True
-        for path, path_spec in content.get('paths', {}).items():
-            for method, method_spec in path_spec.items():
-                integration = arguments_handler.get_integration(path, method_spec.get('tags', []))
-                if integration:
-                    _define_integration(method, method_spec, *integration)
-                    modified = True
-        # store now the output
-        if arguments_handler.get_output():
-            filename = os.path.join(arguments_handler.get_output(), os.path.basename(filename))
+        """Returns tuples (name, authorization_type, identity, issuer,
+        authorizer_type, audience)"""
+
+        modified = augment_content(content, configuration.get_authorizers(),
+                                   configuration.get_integration)
+
+        if configuration.get_output():
+            filename = os.path.join(configuration.get_output(), os.path.basename(filename))
         elif not modified:
             continue
         try:
@@ -326,6 +362,6 @@ def openapi4aws(arguments_handler):
 
 if __name__ == '__main__':
     try:
-        openapi4aws(ArgumentsHandler(sys.argv))
-    except ArgumentException as ex:
+        openapi4aws(Configuration(sys.argv[1:]))
+    except ConfigurationError as ex:
         print(ex.args[1], file=sys.stderr)

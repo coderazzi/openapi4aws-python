@@ -10,7 +10,8 @@ setup(
     name='openapi4aws',
     py_modules=['openapi4aws'],
     version='1.2.0',
-    description='utility to enrich an openapi specification with information specific for the AWS API Gateway',
+    description='utility to enrich an openapi specification with information '
+                'specific for the AWS API Gateway',
     author='coderazzi (LuisM Pena)',
     author_email='coderazzi@gmail.com',
     url='https://coderazzi.net/python/openapi4aws',
