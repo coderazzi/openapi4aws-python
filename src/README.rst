@@ -3,6 +3,7 @@ Openapi 4 AWS
 
 -  Website: https://coderazzi.net/python/openapi4aws
 -  Github: https://github.com/coderazzi/openapi4aws-python
+-  Pypi: https://pypi.org/project/openapi4aws
 -  License: MIT license
 
 This is utility to enrich an openapi integration with information
