@@ -16,7 +16,7 @@ from dataclasses import dataclass
 import yaml
 
 
-__version__ = '1.2.0'
+__version__ = '1.2.1'
 
 __all__ = ['openapi4aws', 'augment_content', 'Configuration', 'ConfigurationError']
 

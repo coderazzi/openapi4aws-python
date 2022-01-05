@@ -9,7 +9,7 @@ def readme():
 setup(
     name='openapi4aws',
     py_modules=['openapi4aws'],
-    version='1.2.0',
+    version='1.2.1',
     description='utility to enrich an openapi specification with information '
                 'specific for the AWS API Gateway',
     author='coderazzi (LuisM Pena)',
@@ -25,4 +25,11 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3',
     ],
+    install_requires=['pyyaml'],
+    python_requires='>=3.7',
+    project_urls={
+        'Website': 'https://coderazzi.net/python/openapi4aws/index.html',
+        'Source': 'https://github.com/coderazzi/openapi4aws-python',
+        'Tracker': 'https://github.com/coderazzi/openapi4aws-python/issues',
+    },
 )
